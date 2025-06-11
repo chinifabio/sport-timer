@@ -1,29 +1,33 @@
-use std::fs::read_dir;
-
-use image::{GenericImageView, ImageReader};
+use clap::Parser;
+use opencv::core::{MatTraitConst, MatTraitConstManual};
 use renoir::prelude::*;
 
-use sport_timer::python::PythonExt;
+use sport_timer::{python::PythonExt, video::VideoExt};
+
+#[derive(clap::Parser)]
+struct Args {
+    #[clap(long, short)]
+    camera: usize
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = StreamContext::new_local();
+    let (config, args) = RuntimeConfig::from_args();
+    config.spawn_remote_workers();
 
-    let images = read_dir("images").expect("Failed to read directory. run `mkdir images`");
+    let args = Args::parse_from(args);
 
-    ctx.stream_iter(images)
-        .filter_map(|x| x.ok().map(|d| d.path()))
-        .shuffle()
-        .filter_map(|p| {
-            println!("processing {p:?}");
-            let image = ImageReader::open(p).ok()?.decode().ok()?;
-            let (width, height) = image.dimensions();
-            let channels = image.color().channel_count();
-            let shape = vec![height as usize, width as usize, channels as usize];
-            println!("{shape:?}");
-            let bytes = image.into_bytes();
-            Some((bytes, shape, "uint8".to_string()))
+    let ctx = StreamContext::new(config);
+
+    ctx.stream_frames(args.camera, None)
+        .filter_map(|frame| {
+            let bytes = frame.data_bytes().ok()?.to_vec();
+            let shape = vec![frame.rows() as usize, frame.cols() as usize, frame.channels() as usize];
+            Some((bytes, shape))
         })
-        .python::<Vec<Vec<f32>>>(include_str!("../main.py"))
+        // .update_requirements(s("python").eq("yes"))
+        .python::<Option<Vec<Vec<f32>>>>(include_str!("../main.py"))
+        .filter_map(|f| f)
+        // .update_requirements(none())
         .for_each(|embeddings| println!("there are {} detected people", embeddings.len()));
 
     ctx.execute_blocking();

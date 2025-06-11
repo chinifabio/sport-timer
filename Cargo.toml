@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-image = "0.25.6"
+clap = "4.5.40"
+opencv = "0.94.4"
 pyo3 = { version = "0.25.0", features = ["auto-initialize"] }
 rand = "0.9.1"
 renoir = { path = "/home/fabio/dev/renoir" }
