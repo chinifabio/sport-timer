@@ -17,9 +17,9 @@ mtcnn = MTCNN(
 resnet = InceptionResnetV1(pretrained="vggface2").eval().to(device)
 
 
-def next(item: bytes, shape: list[int]):
+def next(item: bytes, shape: list[int], position):
     img = torch.frombuffer(item, dtype=torch.uint8).reshape(*shape)
     crop = mtcnn(img)
     if crop is None:
-        return None
-    return resnet(crop).tolist()
+        return ([[]], position)
+    return (resnet(crop).tolist(), position)
