@@ -8,5 +8,6 @@ diesel::table! {
         id -> Int4,
         embeddings -> Vector,
         position -> Varchar,
+        timestamp -> Timestamp,
     }
 }

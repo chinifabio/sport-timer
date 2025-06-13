@@ -8,7 +8,8 @@ clap = "4.5.40"
 diesel = { version = "2.2.10", features = ["postgres"] }
 dotenv = "0.15.0"
 opencv = "0.94.4"
-pgvector = { version = "0.4.1", features = ["diesel"] }
+ordered-float = "5.0.0"
+pgvector = { version = "0.4.1", features = ["diesel", "serde"] }
 pyo3 = { version = "0.25.0", features = ["auto-initialize"] }
 rand = "0.9.1"
 renoir = { path = "/home/fabio/dev/renoir" }

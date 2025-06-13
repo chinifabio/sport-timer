@@ -4,7 +4,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use clap::Parser;
@@ -60,14 +60,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             embeddings
                 .into_iter()
                 .filter(|e| !e.is_empty())
-                .map(move |embeddings| (embeddings, position.clone()))
+                .map(move |embeddings| (embeddings, position.clone(), SystemTime::now()))
         })
-        // .update_layer("cloud")
-        // this must live in the cloud because for security reason
-        .map(|(embedding, position)| PersonPosition {
+        .map(|(embedding, position, timestamp)| PersonPosition {
             embeddings: Vector::from(embedding),
             position,
+            timestamp,
         })
+        .group_by(|pp| {
+            pp.embeddings
+                .to_vec()
+                .iter()
+                .map(|f| ordered_float::OrderedFloat::from(*f))
+                .collect::<Vec<_>>()
+        })
+        .window(SessionWindow::new(Duration::from_secs(3600)))
+        .last()
+        .drop_key()
+        // .update_layer("cloud")
+        // this must live in the cloud because for security reason
         .for_each({
             let pg_connection = pg_connection.clone();
             move |pp| {

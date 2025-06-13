@@ -1,0 +1,1 @@
+ALTER TABLE posper DROP COLUMN timestamp;
