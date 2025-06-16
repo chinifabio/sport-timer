@@ -3,7 +3,8 @@ use std::{ffi::CString, marker::PhantomData, sync::Arc};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use pyo3::{ffi::c_str, types::PyTuple};
-use renoir::{Stream, operator::Operator, structure::OperatorStructure};
+use renoir::block::structure::{BlockStructure, OperatorStructure};
+use renoir::{Stream, operator::Operator};
 
 #[derive(Debug)]
 struct PythonWrapper {
@@ -57,7 +58,7 @@ where
         })
     }
 
-    fn structure(&self) -> renoir::structure::BlockStructure {
+    fn structure(&self) -> BlockStructure {
         self.prev
             .structure()
             .add_operator(OperatorStructure::new::<O, _>("PythonWrapper"))

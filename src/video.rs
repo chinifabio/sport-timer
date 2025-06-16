@@ -2,10 +2,7 @@ use std::sync::{Arc, atomic::AtomicBool};
 
 use opencv::videoio::{VideoCapture, VideoCaptureTrait, VideoCaptureTraitConst};
 use renoir::{
-    Stream, StreamContext,
-    operator::{Operator, StreamElement},
-    prelude::Source,
-    structure::{BlockStructure, OperatorKind, OperatorStructure},
+    block::structure::{BlockStructure, OperatorKind, OperatorStructure}, operator::{Operator, StreamElement}, prelude::Source, Stream, StreamContext
 };
 
 #[derive(Debug)]
@@ -74,7 +71,7 @@ impl Operator for VideoSource {
         }
     }
 
-    fn structure(&self) -> renoir::structure::BlockStructure {
+    fn structure(&self) -> BlockStructure {
         let mut operator = OperatorStructure::new::<Self::Out, _>("VideoSource");
         operator.kind = OperatorKind::Source;
         BlockStructure::default().add_operator(operator)
