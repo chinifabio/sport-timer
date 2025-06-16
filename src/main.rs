@@ -46,6 +46,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let close = Arc::new(AtomicBool::new(false));
     ctx //.update_layer("cameras")
         .stream_frames(args.camera, Some(close.clone()))
+        .add_timestamps(
+            |_| {
+                SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64
+            },
+            {
+                let mut last_ts = 0;
+                move |_, ts| {
+                    if ts - last_ts > 5 {
+                        last_ts = *ts;
+                        Some(last_ts)
+                    } else {
+                        None
+                    }
+                }
+            },
+        )
         .filter_map(move |frame| {
             let bytes = frame.data_bytes().ok()?.to_vec();
             let shape = vec![
@@ -77,25 +96,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             position,
             timestamp,
         })
-        .add_timestamps(
-            |v| {
-                v.timestamp
-                    .duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64
-            },
-            {
-                let mut last_ts = 0;
-                move |_, ts| {
-                    if ts - last_ts > 5 {
-                        last_ts = *ts;
-                        Some(last_ts)
-                    } else {
-                        None
-                    }
-                }
-            },
-        )
         .rich_map({
             let mut tracker = Tracker::default();
             move |pp| tracker.update(pp)
