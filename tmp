@@ -1,0 +1,13 @@
+[[host]]
+name = "pc_davide"
+address = "10.79.11.166"
+num_cores = 1
+base_port = 9500
+layer = "cameras"
+group = "a"
+[host.variables]
+POSITION = "Davide"
+VIRTUAL_ENV = "/tmp/python"
+[host.ssh]
+username = "dave"
+key_file = "/home/fabio/.ssh/dave.key"

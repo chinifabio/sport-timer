@@ -25,12 +25,9 @@ struct Args {
     camera_position: Option<String>,
 }
 
-pub fn establish_connection() -> PgConnection {
-    dotenv::dotenv().ok();
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+pub fn establish_connection() -> Option<PgConnection> {
+    let database_url = env::var("DATABASE_URL").unwrap_or_default();
+    PgConnection::establish(&database_url).ok()
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -44,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = StreamContext::new(config);
 
     let close = Arc::new(AtomicBool::new(false));
-    ctx //.update_layer("cameras")
+    ctx.update_layer("cameras")
         .stream_frames(args.camera, Some(close.clone()))
         .add_timestamps(
             |_| {
@@ -90,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .filter(|e| !e.is_empty())
                 .map(move |embeddings| (embeddings, position.clone(), now))
         })
-        // .update_layer("cloud")
+        .update_layer("cloud")
         .map(|(embedding, position, timestamp)| PersonPosition {
             embeddings: Vector::from(embedding),
             position,
@@ -110,11 +107,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pg_connection = pg_connection.clone();
             move |(_, pp)| {
                 println!("sending item");
-                let mut conn = pg_connection.lock().unwrap();
+                let mut lock = pg_connection.lock().unwrap();
+                let conn = lock.as_mut().unwrap();
                 diesel::insert_into(schema::posper::table)
                     .values(&vec![pp])
                     .returning(PersonPosition::as_returning())
-                    .get_result(&mut *conn)
+                    .get_result(conn)
                     .expect("Error saving posper");
             }
         });

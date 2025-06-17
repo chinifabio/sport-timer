@@ -1,0 +1,29 @@
+[[host]]
+name = "pc_fabio"
+address = "127.0.0.1"
+num_cores = 1
+base_port = 9500
+layer = "cameras"
+group = "a"
+[host.variables]
+POSITION = "Fabio"
+[host.ssh]
+username = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "fabio"
+address = "127.0.0.1"
+num_cores = 4
+base_port = 9600
+layer = "cloud"
+group = "c"
+[host.variables]
+DATABASE_URL = "postgres://postgres:postgres@localhost/sport_timer_db"
+[host.ssh]
+username = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[groups_connection]]
+from = ["a"]
+to = "c"

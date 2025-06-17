@@ -1,14 +1,19 @@
-use std::{ffi::CString, marker::PhantomData, sync::Arc};
+use std::{
+    ffi::CString,
+    marker::PhantomData,
+    sync::{Arc, RwLock},
+};
 
-use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use pyo3::{ffi::c_str, types::PyTuple};
+use pyo3::{prelude::*, types::PyDict};
 use renoir::block::structure::{BlockStructure, OperatorStructure};
 use renoir::{Stream, operator::Operator};
 
 #[derive(Debug)]
 struct PythonWrapper {
-    module: Py<PyModule>,
+    code: String,
+    module: Option<Py<PyModule>>,
 }
 
 #[derive(Debug, Clone)]
@@ -19,7 +24,7 @@ where
     Op: Operator<Out = I>,
 {
     prev: Op,
-    python: Arc<PythonWrapper>,
+    py_handle: Arc<RwLock<PythonWrapper>>,
     _i: PhantomData<I>,
     _o: PhantomData<O>,
 }
@@ -45,13 +50,51 @@ where
 
     fn setup(&mut self, metadata: &mut renoir::ExecutionMetadata) {
         self.prev.setup(metadata);
+        let mut handle = self
+            .py_handle
+            .write()
+            .expect("Failed to acquire write lock on PythonWrapper");
+        if handle.module.is_none() {
+            let code_c_str = CString::new(handle.code.as_str())
+                .expect("Failed to create CString from Python code");
+            let module = Python::with_gil(|py| {
+                let locals = PyDict::new(py);
+                py.run(
+                    c_str!(r#"import sys; import os; envdata = f"Python version: {sys.version}\nPython executable: {sys.executable}\nPython path: {sys.path}\nPython environment variables: {os.environ}""#),
+                    None,
+                    Some(&locals),
+                )
+                .expect("Failed to run Python code for environment info");
+                let envdata: String = locals.get_item("envdata").unwrap().unwrap().unbind().to_string();
+                println!("{envdata}");
+                PyModule::from_code(
+                    py,
+                    &code_c_str,
+                    c_str!("renoir_model_runner.py"),
+                    c_str!("renoir_model_runner"),
+                )
+                .expect("Failed to create the python module")
+                .into()
+            });
+            handle.module = Some(module);
+        }
     }
 
     fn next(&mut self) -> renoir::operator::StreamElement<Self::Out> {
+        let handle = self
+            .py_handle
+            .read()
+            .expect("Failed to acquire read lock on PythonWrapper");
+        // Module should be initialized by setup, so we can unwrap
+        let py_module = handle
+            .module
+            .as_ref()
+            .expect("Python module not initialized. Call setup first.");
+
         self.prev.next().map(|item| {
             Python::with_gil(|py| -> PyResult<O> {
-                let next = self.python.module.getattr(py, "next")?;
-                let result = next.call1(py, item)?;
+                let next_fn = py_module.getattr(py, "next")?;
+                let result = next_fn.call1(py, item)?;
                 result.extract(py)
             })
             .expect("Failed to convert python result")
@@ -68,7 +111,7 @@ where
 pub trait PythonExt {
     fn python<O: for<'py> FromPyObject<'py> + Clone + Send>(
         self,
-        code: &'static str,
+        code: &str,
     ) -> Stream<impl Operator<Out = O>>;
 }
 
@@ -81,20 +124,13 @@ where
         self,
         code: &str,
     ) -> Stream<impl Operator<Out = O>> {
-        let code = CString::new(code).expect("Failed to setup python code for python engine");
-        let module = Python::with_gil(|py| {
-            PyModule::from_code(
-                py,
-                &code,
-                c_str!("renoir_model_runner.py"),
-                c_str!("renoir_model_runner"),
-            )
-            .expect("Failed to create the python module")
-            .into()
-        });
+        let wrapper = PythonWrapper {
+            code: code.to_string(),
+            module: None,
+        };
         self.add_operator(|prev| PythonOperator {
             prev,
-            python: Arc::new(PythonWrapper { module }),
+            py_handle: Arc::new(RwLock::new(wrapper)),
             _i: PhantomData::<I>,
             _o: PhantomData::<O>,
         })
