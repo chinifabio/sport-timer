@@ -15,7 +15,6 @@ use image::RgbImage;
 use opencv::core::{MatTraitConst, MatTraitConstManual};
 use pgvector::Vector;
 use renoir::prelude::*;
-
 use sport_timer::{
     models::PersonPosition, schema, tracker::Tracker, video::VideoExt,
 };
@@ -28,12 +27,9 @@ struct Args {
     camera_position: Option<String>,
 }
 
-pub fn establish_connection() -> PgConnection {
-    dotenv::dotenv().ok();
-
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    PgConnection::establish(&database_url)
-        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
+pub fn establish_connection() -> Option<PgConnection> {
+    let database_url = env::var("DATABASE_URL").unwrap_or_default();
+    PgConnection::establish(&database_url).ok()
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -59,7 +55,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = StreamContext::new(config);
 
     let close = Arc::new(AtomicBool::new(false));
-    ctx //.update_layer("cameras")
+    ctx .update_layer("cameras")
         .stream_frames(args.camera, Some(close.clone()))
         .add_timestamps(
             |_| {
@@ -118,19 +114,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let now = SystemTime::now();
             (Vec::from(embeddings.as_ref()).into_iter().map(|f| f as f32).collect::<Vec<_>>(), position, now)
         })
-        // .update_layer("cloud")
+        .update_layer("cloud")
         .map(|(embedding, position, timestamp)| PersonPosition {
             embeddings: Vector::from(embedding),
             position,
             timestamp,
         })
-        .rich_map({
+        .rich_filter_map({
             let mut tracker = Tracker::default();
             move |pp| tracker.update(pp)
         })
         .group_by(|(id, _)| *id)
         .batch_mode(BatchMode::timed(1024, Duration::from_millis(100)))
-        .window(SessionWindow::new(Duration::from_secs(10)))
+        .window(SessionWindow::new(Duration::from_secs(5)))
         .last()
         .drop_key()
         // this must live in the cloud because for security reason
@@ -138,13 +134,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let pg_connection = pg_connection.clone();
             move |(_, pp)| {
                 println!("sending item");
-                let mut conn = pg_connection.lock().unwrap();
+                let mut lock = pg_connection.lock().unwrap();
+                let conn = lock.as_mut().unwrap();
                 diesel::insert_into(schema::posper::table)
                     .values(&vec![pp])
                     .returning(PersonPosition::as_returning())
-                    .get_result(&mut *conn)
+                    .get_result(conn)
                     .expect("Error saving posper");
             }
+            
         });
 
     ctx.execute_blocking();

@@ -2,6 +2,6 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 CREATE TABLE posper (
   id SERIAL PRIMARY KEY,
-  embeddings vector(512) NOT NULL,
+  embeddings vector(128) NOT NULL,
   position VARCHAR NOT NULL
 );

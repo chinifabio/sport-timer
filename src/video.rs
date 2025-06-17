@@ -8,14 +8,15 @@ use renoir::{
 #[derive(Debug)]
 pub struct VideoSource {
     cam: Option<VideoCapture>,
+    camera_index: usize,
     close: Arc<AtomicBool>,
 }
 
 impl VideoSource {
     fn new(camera_index: usize, close: Arc<AtomicBool>) -> Self {
-        let cam = VideoCapture::new(camera_index as i32, opencv::videoio::CAP_ANY).unwrap();
         Self {
-            cam: Some(cam),
+            cam: None,
+            camera_index,
             close,
         }
     }
@@ -25,6 +26,7 @@ impl Clone for VideoSource {
     fn clone(&self) -> Self {
         Self {
             cam: None,
+            camera_index: self.camera_index,
             close: self.close.clone(),
         }
     }
@@ -41,7 +43,16 @@ impl Operator for VideoSource {
 
     fn setup(&mut self, _metadata: &mut renoir::ExecutionMetadata) {
         if self.cam.is_none() {
-            panic!("Camera not initialized");
+            let cam = VideoCapture::new(self.camera_index as i32, opencv::videoio::CAP_ANY)
+                .inspect_err(|_| {
+                    for i in 0..10 {
+                        if VideoCapture::new(i as i32, opencv::videoio::CAP_ANY).is_ok() {
+                            println!("camera index {i} is ok");
+                        }
+                    }
+                })
+                .unwrap();
+            self.cam = Some(cam);
         }
 
         match VideoCapture::is_opened(self.cam.as_ref().unwrap()) {

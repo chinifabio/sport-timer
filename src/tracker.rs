@@ -2,31 +2,43 @@ use crate::models::PersonPosition;
 
 #[derive(Debug, Clone, Default)]
 pub struct Tracker {
-    people: Vec<PersonPosition>,
+    people: Vec<(PersonPosition, usize)>,
 }
 
 impl Tracker {
-    pub fn update(&mut self, target_pp: PersonPosition) -> (usize, PersonPosition) {
+    pub fn update(&mut self, target_pp: PersonPosition) -> Option<(usize, PersonPosition)> {
         let res = self.people.iter().enumerate().find(|(_, pp)| {
-            let cos_sim = cosine_similarity(&target_pp.embeddings, &pp.embeddings)
+            let cos_sim = cosine_similarity(&target_pp.embeddings, &pp.0.embeddings)
                 .expect("Failed to compute similarity");
-            cos_sim > 0.8
+            cos_sim > 0.9
         });
         match res {
             Some((idx, pp)) => {
-                let new_embeddings = average_embeddings(&pp.embeddings, &target_pp.embeddings);
+                // println!( "OLD, updating existing person");
+                let new_embeddings = average_embeddings(&pp.0.embeddings, &target_pp.embeddings);
                 let new_pp = PersonPosition {
                     embeddings: new_embeddings.expect("Failed to compute average of embeddings"),
-                    position: pp.position.clone(),
-                    timestamp: pp.timestamp,
+                    position: pp.0.position.clone(),
+                    timestamp: pp.0.timestamp,
                 };
-                self.people[idx] = new_pp.clone();
-                (idx, new_pp)
+
+                let new_count = pp.1 + 1;
+                self.people[idx] = (new_pp.clone(), new_count);
+
+                if new_count >= 3 {
+                    println!("Person {} has been seen {} times, identity confirmed", idx, new_count);
+                    Some((idx, new_pp))
+                } else {
+                    println!("Person {} has been seen {} times, not enough to confirm identity", idx, new_count);
+                    None
+                }
             }
             None => {
+                // println!("NEW person detected");
                 let id = self.people.len();
-                self.people.push(target_pp.clone());
-                (id, target_pp)
+                println!("Now I'm tracking {} people", id + 1);
+                self.people.push((target_pp.clone(),1));
+                None
             }
         }
     }

@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 clap = "4.5.40"
+colored = "3.0.0"
 diesel = { version = "2.2.10", features = ["postgres"] }
 dlib-face-recognition = { version = "0.3.2", features = ["build-native", "embed-all"] }
 dotenv = "0.15.0"
