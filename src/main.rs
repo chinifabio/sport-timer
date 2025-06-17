@@ -9,12 +9,15 @@ use std::{
 
 use clap::Parser;
 use diesel::{Connection, PgConnection, RunQueryDsl, SelectableHelper};
+use dlib_face_recognition::*;
+use dlib_face_recognition::FaceDetectorCnn;
+use image::RgbImage;
 use opencv::core::{MatTraitConst, MatTraitConstManual};
 use pgvector::Vector;
 use renoir::prelude::*;
 
 use sport_timer::{
-    models::PersonPosition, python::PythonExt, schema, tracker::Tracker, video::VideoExt,
+    models::PersonPosition, schema, tracker::Tracker, video::VideoExt,
 };
 
 #[derive(clap::Parser)]
@@ -40,6 +43,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = Args::parse_from(args);
     let camera_position = args.camera_position.take();
     let pg_connection = Arc::new(Mutex::new(establish_connection()));
+
+    let cnn_detector = Arc::new(Mutex::new(
+        FaceDetectorCnn::default().expect("Error loading Face Detector (CNN).")
+    ));
+
+    let landmarks = Arc::new(Mutex::new(
+        LandmarkPredictor::default().expect("Error loading Landmark Predictor.")
+    ));
+
+    let face_encoder = Arc::new(Mutex::new(
+        FaceEncoderNetwork::default().expect("Error loading Face Encoder.")
+    ));
 
     let ctx = StreamContext::new(config);
 
@@ -67,28 +82,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .filter_map(move |frame| {
             let bytes = frame.data_bytes().ok()?.to_vec();
-            let shape = vec![
-                frame.rows() as usize,
-                frame.cols() as usize,
-                frame.channels() as usize,
-            ];
+            let image = RgbImage::from_vec(frame.cols() as u32, frame.rows() as u32, bytes).unwrap();
             let position = camera_position.as_deref().unwrap_or("Unknown").to_string();
-            Some((bytes, shape, position))
+            Some((image, position))
         })
-        .python::<(Vec<Vec<f32>>, String)>(include_str!("../main.py"))
-        .flat_map(move |(embeddings, position)| {
+        .flat_map({
+            let cnn_detector = cnn_detector.clone();
+            let landmarks = landmarks.clone();
+            let face_encoder = face_encoder.clone();
+            move |(image, pos)| {
+                let matrix = ImageMatrix::from_image(&image);
+
+                let locations = cnn_detector.lock().unwrap().face_locations(&matrix);
+
+                let mut landmark_results = Vec::new();
+                if !locations.is_empty() {
+                    let predictor_locked = landmarks.lock().unwrap();
+                    for face_location in locations.iter() {
+                        let l = predictor_locked.face_landmarks(&matrix, face_location);
+                        landmark_results.push(l);
+                    }
+                }
+
+                if !landmark_results.is_empty() {
+                    let encoder_locked = face_encoder.lock().unwrap();
+                    let encodings = encoder_locked.get_face_encodings(&matrix, &landmark_results, 0);
+                    
+                    encodings.into_iter().map(|x| (x.to_owned(), pos.clone())).collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                }
+            }
+        })
+        .map(move |(embeddings, position)| {
             let now = SystemTime::now();
-            println!(
-                "{}: received frame with {} people",
-                now.duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-                embeddings.len()
-            );
-            embeddings
-                .into_iter()
-                .filter(|e| !e.is_empty())
-                .map(move |embeddings| (embeddings, position.clone(), now))
+            (Vec::from(embeddings.as_ref()).into_iter().map(|f| f as f32).collect::<Vec<_>>(), position, now)
         })
         // .update_layer("cloud")
         .map(|(embedding, position, timestamp)| PersonPosition {
